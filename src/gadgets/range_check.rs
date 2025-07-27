@@ -2,8 +2,10 @@ use halo2_axiom as halo2_proofs;
 use halo2_proofs::{
     circuit::{Layouter, Value},
     plonk::{Advice, Column, ConstraintSystem, Error, Selector},
-    arithmetic::FieldExt,
+   
 };
+use halo2curves::ff::{Field, PrimeField};
+use halo2_proofs::poly::Rotation;
 
 #[derive(Clone, Debug)]
 pub struct RangeCheckConfig {
@@ -13,13 +15,13 @@ pub struct RangeCheckConfig {
     pub selector: Selector,
 }
 
-pub struct RangeCheckChip<F: FieldExt> {
+pub struct RangeCheckChip<F: Field> {
     config: RangeCheckConfig,
     _marker: std::marker::PhantomData<F>,
 }
 
 
-impl<F: FieldExt> RangeCheckChip<F> {
+impl<F: Field> RangeCheckChip<F> {
     pub fn construct(config: RangeCheckConfig) -> Self {
         Self { config, _marker: std::marker::PhantomData }
     }
@@ -32,9 +34,9 @@ impl<F: FieldExt> RangeCheckChip<F> {
 
         meta.create_gate("range check", |meta| {
             let s = meta.query_selector(selector);
-            let value = meta.query_advice(value, halo2_proofs::plonk::Rotation::cur());
-            let min = meta.query_advice(min, halo2_proofs::plonk::Rotation::cur());
-            let max = meta.query_advice(max, halo2_proofs::plonk::Rotation::cur());
+            let value = meta.query_advice(value, Rotation::cur());
+            let min = meta.query_advice(min, Rotation::cur());
+            let max = meta.query_advice(max, Rotation::cur());
 
             vec![
                 s.clone() * (value.clone() - min.clone()), // value >= min
@@ -56,9 +58,9 @@ impl<F: FieldExt> RangeCheckChip<F> {
             || "range check",
             |mut region| {
                 self.config.selector.enable(&mut region, 0)?;
-                region.assign_advice(|| "value", self.config.value, 0, || Value::known(value))?;
-                region.assign_advice(|| "min", self.config.min, 0, || Value::known(min))?;
-                region.assign_advice(|| "max", self.config.max, 0, || Value::known(max))?;
+                region.assign_advice(self.config.value, 0, Value::known(value));
+                region.assign_advice(self.config.min, 0, Value::known(min));
+                region.assign_advice(self.config.max, 0, Value::known(max));
                 Ok(())
             },
         )
