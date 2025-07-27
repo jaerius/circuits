@@ -1,0 +1,15 @@
+[package]
+name = "circuits"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+halo2wrong = { git = "https://github.com/privacy-scaling-explorations/halo2wrong.git", branch = "master" }
+halo2_solidity_verifier = { git = "https://github.com/privacy-scaling-explorations/halo2-solidity-verifier", package = "halo2_solidity_verifier", subdir = "solidity-verifier" }
+halo2-base = "0.5.0"
+halo2-ecc = "0.5.0"
+halo2curves = "0.5.0"
+halo2-axiom = "0.5.1"
+tetris = { git = "https://github.com/kilic/tetris.git", branch = "main" }
+poseidon = { git = "https://github.com/privacy-scaling-explorations/poseidon.git", branch = "main" }
+rand_core = "0.6.3"
