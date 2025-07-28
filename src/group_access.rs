@@ -4,7 +4,6 @@ use halo2_proofs::{
     circuit::{Layouter, SimpleFloorPlanner, Value, Region},
     plonk::{Circuit, ConstraintSystem, Error, Advice, Column, Instance, Selector},
 };
-use halo2_base::poseidon::{PoseidonChip};
 use halo2_solidity_verifier::SolidityGenerator;
 
 /// Merkle proof 회로의 Config 구조체

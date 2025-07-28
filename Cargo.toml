@@ -13,3 +13,9 @@ halo2-axiom = "0.5.1"
 tetris = { git = "https://github.com/kilic/tetris.git", branch = "main" }
 poseidon = { git = "https://github.com/privacy-scaling-explorations/poseidon.git", branch = "main" }
 rand_core = "0.6.3"
+ecdsa = { path = "../ecdsa" }
+ecc = { path = "../ecc" }
+integer = { path = "../integer"}
+maingate = { path = "../maingate"}
+halo2 = { package = "halo2_proofs", git = "https://github.com/privacy-scaling-explorations/halo2", tag = "v0.3.0" }
+
