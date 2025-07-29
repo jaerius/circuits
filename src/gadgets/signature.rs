@@ -11,6 +11,7 @@ use maingate::{MainGate, RangeChip};
 use ecc::maingate::RegionCtx;
 use integer::Range;
 use integer::UnassignedInteger;
+use ecc::AssignedPoint;
 
 
 
@@ -22,7 +23,7 @@ pub struct SignatureChip<E: halo2curves::CurveAffine, F: PrimeField, const LIMBS
     chip: EcdsaChip<E, F, LIMBS, BITS>,
 }
 
-impl<E: halo2curves::CurveAffine, F: PrimeField, const LIMBS: usize, const BITS: usize> SignatureChip<E, F, LIMBS, BITS> {
+impl<E: halo2curves::CurveAffine<ScalarExt = F>, F: PrimeField, const LIMBS: usize, const BITS: usize> SignatureChip<E, F, LIMBS, BITS> {
     pub fn new(chip: EcdsaChip<E, F, LIMBS, BITS>) -> Self {
         Self { chip }
     }
@@ -52,11 +53,19 @@ impl<E: halo2curves::CurveAffine, F: PrimeField, const LIMBS: usize, const BITS:
         ctx: &mut RegionCtx<'_, F>,
         pk: (E::Base, E::Base),
     ) -> Result<AssignedPublicKey<E::Base, F, LIMBS, BITS>, Error> {
-        let base_chip = self.chip.0.ecc_chip().base_field_chip();
+        let base_chip = self.chip.ecc_chip().base_field_chip();
         let rns = base_chip.rns();
-        let x = base_chip.assign_integer(ctx, Value::known(Integer::from_fe(pk.0, rns.clone())))?;
-        let y = base_chip.assign_integer(ctx, Value::known(Integer::from_fe(pk.1, rns.clone())))?;
-        let point = self.chip.0.ecc_chip().assign_point_from_coords(ctx, x, y)?;
+        let x = base_chip.assign_integer(
+            ctx,
+            Value::known(Integer::from_fe(pk.0, rns.clone())).into(),
+            Range::Remainder,
+        )?;
+        let y = base_chip.assign_integer(
+            ctx,
+            Value::known(Integer::from_fe(pk.1, rns.clone())).into(),
+            Range::Remainder,
+        )?;
+        let point = AssignedPoint::new(x, y);
         Ok(AssignedPublicKey { point })
     }
 
@@ -66,8 +75,8 @@ impl<E: halo2curves::CurveAffine, F: PrimeField, const LIMBS: usize, const BITS:
         value: F,
     ) -> Result<AssignedInteger<E::Scalar, F, LIMBS, BITS>, Error> {
         let scalar_chip = self.chip.scalar_field_chip();
-        let range = scalar_chip.range_chip(); // 또는 self.chip.range(), config.range 등
-        scalar_chip.assign_integer(ctx, UnassignedInteger::from(value), Range::Operand)
+        let rns = scalar_chip.rns(); // 또는 self.chip.range(), config.range 등
+        scalar_chip.assign_integer(ctx, UnassignedInteger::from(Value::known(Integer::from_fe(value, rns.clone()))), Range::Operand)
     }
 
     pub fn verify(
