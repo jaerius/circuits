@@ -1,6 +1,5 @@
 use halo2wrong::curves::bn256::Fr;
-use halo2_axiom as halo2_proofs;
-use halo2_proofs::{
+use halo2::{
     circuit::{Layouter, SimpleFloorPlanner, Value, Region},
     plonk::{Circuit, ConstraintSystem, Error, Advice, Column, Instance, Selector},
 };
@@ -27,7 +26,6 @@ pub struct GroupAccessCircuit {
 impl Circuit<Fr> for GroupAccessCircuit {
     type Config = GroupAccessConfig;
     type FloorPlanner = SimpleFloorPlanner;
-    type Params = ();
 
     fn without_witnesses(&self) -> Self {
         Self {
@@ -75,32 +73,32 @@ impl Circuit<Fr> for GroupAccessCircuit {
                     // 실제로는 Poseidon hash를 써야 하지만, 예시로 left+right 사용
                     let hash = left + right;
                     region.assign_advice(
-                       
+                        || "leaf",
                         config.leaf,
                         offset,
-                        Value::known(current_hash),
-                    );
+                        || Value::known(current_hash),
+                    )?;
                     region.assign_advice(
-                        
+                        || "path element",
                         config.path_elements[i],
                         offset,
-                        Value::known(*pe),
-                    );
+                        || Value::known(*pe),
+                    )?;
                     region.assign_advice(
-                        
+                        || "path index",
                         config.path_indices[i],
                         offset,
-                        Value::known(Fr::from(*pi as u64)),
-                    );
+                        || Value::known(Fr::from(*pi as u64)),
+                    )?;
                     current_hash = hash;
                     offset += 1;
                 }
                 let cell = region.assign_advice(
-                    
+                    || "final root",
                     config.leaf,
                     offset,
-                    (|| Value::known(current_hash))(),
-                );
+                    || Value::known(current_hash),
+                )?;
                 Ok(cell)
             },
         )?;

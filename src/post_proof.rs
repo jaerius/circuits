@@ -1,6 +1,5 @@
-use halo2wrong::curves::bn256::Fr;
-use halo2_axiom as halo2_proofs;
-use halo2_proofs::{
+use halo2curves::bn256::Fr;
+use halo2::{
     circuit::{Layouter, SimpleFloorPlanner, Value},
     plonk::{Circuit, ConstraintSystem, Error},
 };
@@ -17,7 +16,6 @@ pub struct PostProofCircuit {
 impl Circuit<Fr> for PostProofCircuit {
     type Config = ();
     type FloorPlanner = SimpleFloorPlanner;
-    type Params = ();
 
     fn without_witnesses(&self) -> Self {
         Self {

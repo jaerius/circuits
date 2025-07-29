@@ -1,11 +1,11 @@
-use halo2_axiom as halo2_proofs;
-use halo2_proofs::{
+use halo2::{
     circuit::{Layouter, Value},
     plonk::{Advice, Column, ConstraintSystem, Error, Selector},
    
 };
 use halo2curves::ff::{Field, PrimeField};
-use halo2_proofs::poly::Rotation;
+use halo2::poly::Rotation;
+use integer::IntegerInstructions;
 
 #[derive(Clone, Debug)]
 pub struct RangeCheckConfig {
@@ -58,9 +58,9 @@ impl<F: Field> RangeCheckChip<F> {
             || "range check",
             |mut region| {
                 self.config.selector.enable(&mut region, 0)?;
-                region.assign_advice(self.config.value, 0, Value::known(value));
-                region.assign_advice(self.config.min, 0, Value::known(min));
-                region.assign_advice(self.config.max, 0, Value::known(max));
+                region.assign_advice(|| "value", self.config.value, 0, || Value::known(value))?;
+                region.assign_advice(|| "min", self.config.min, 0, || Value::known(min))?;
+                region.assign_advice(|| "max", self.config.max, 0, || Value::known(max))?;
                 Ok(())
             },
         )

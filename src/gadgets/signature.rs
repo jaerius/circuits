@@ -6,9 +6,12 @@ use ecdsa::ecdsa::{
 };
 use ecc::{GeneralEccChip, EccConfig};
 use integer::rns::Integer;
-use integer::{AssignedInteger, IntegerConfig};
+use integer::{AssignedInteger, IntegerConfig, IntegerInstructions};
 use maingate::{MainGate, RangeChip};
 use ecc::maingate::RegionCtx;
+use integer::Range;
+use integer::UnassignedInteger;
+
 
 
 /// SignatureConfig: ECDSA gadget의 config를 그대로 사용
@@ -29,6 +32,42 @@ impl<E: halo2curves::CurveAffine, F: PrimeField, const LIMBS: usize, const BITS:
         let main_gate_config = MainGate::configure(meta);
         let range_config = RangeChip::configure(meta, &main_gate_config, vec![BITS / LIMBS], vec![]);
         SignatureConfig::new(range_config, main_gate_config)
+    }
+
+     // Proxy methods for assignment
+     pub fn assign_signature(
+        &self,
+        ctx: &mut RegionCtx<'_, F>,
+        sig: (E::Scalar, E::Scalar),
+    ) -> Result<AssignedEcdsaSig<E::Scalar, F, LIMBS, BITS>, Error> {
+        let scalar_chip = self.chip.scalar_field_chip();
+        let rns = scalar_chip.rns(); // 또는 self.chip.range(), config.range 등 회로 구조에 맞게
+        let r = scalar_chip.assign_integer(ctx,  UnassignedInteger::from(Value::known(Integer::from_fe(sig.0, rns.clone()))), Range::Operand)?;
+        let s = scalar_chip.assign_integer(ctx,  UnassignedInteger::from(Value::known(Integer::from_fe(sig.1, rns.clone()))), Range::Operand)?;
+        Ok(AssignedEcdsaSig { r, s })
+    }
+
+    pub fn assign_public_key(
+        &self,
+        ctx: &mut RegionCtx<'_, F>,
+        pk: (E::Base, E::Base),
+    ) -> Result<AssignedPublicKey<E::Base, F, LIMBS, BITS>, Error> {
+        let base_chip = self.chip.0.ecc_chip().base_field_chip();
+        let rns = base_chip.rns();
+        let x = base_chip.assign_integer(ctx, Value::known(Integer::from_fe(pk.0, rns.clone())))?;
+        let y = base_chip.assign_integer(ctx, Value::known(Integer::from_fe(pk.1, rns.clone())))?;
+        let point = self.chip.0.ecc_chip().assign_point_from_coords(ctx, x, y)?;
+        Ok(AssignedPublicKey { point })
+    }
+
+    pub fn assign_integer(
+        &self,
+        ctx: &mut RegionCtx<'_, F>,
+        value: F,
+    ) -> Result<AssignedInteger<E::Scalar, F, LIMBS, BITS>, Error> {
+        let scalar_chip = self.chip.scalar_field_chip();
+        let range = scalar_chip.range_chip(); // 또는 self.chip.range(), config.range 등
+        scalar_chip.assign_integer(ctx, UnassignedInteger::from(value), Range::Operand)
     }
 
     pub fn verify(
