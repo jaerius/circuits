@@ -1,7 +1,7 @@
 use halo2curves::bn256::Fr;
-use crate::gadgets::{poseidon, merkle, range_check, signature};
+use poseidon::{Pow5Chip, Pow5Config, Spec, ConstantLength, Hash, P128Pow5T3};
 use halo2::plonk::{Circuit, ConstraintSystem, Error};
-use halo2::circuit::{Layouter, SimpleFloorPlanner};
+use halo2::circuit::{Layouter, SimpleFloorPlanner, Value};
 use crate::gadgets::poseidon::PoseidonGadget;
 use crate::gadgets::merkle::MerkleGadget;
 use crate::gadgets::range_check::{RangeCheckChip, RangeCheckConfig};
@@ -14,6 +14,7 @@ use maingate::RegionCtx;
 use halo2curves::bn256::G1Affine;
 use halo2curves::bn256::Fq;
 use halo2curves::ff::PrimeField;
+use halo2::circuit::AssignedCell;
 
 
 
@@ -37,6 +38,7 @@ pub struct IdentityClaimCircuit {
 pub struct IdentityClaimConfig {
     pub range: RangeCheckConfig,
     pub signature: SignatureConfig,
+    pub poseidon: Pow5Config<Fr, 3, 2>, // 추가!
 }
 
 impl Circuit<Fr> for IdentityClaimCircuit {
@@ -63,7 +65,21 @@ impl Circuit<Fr> for IdentityClaimCircuit {
     fn configure(meta: &mut ConstraintSystem<Fr>) -> Self::Config {
         let range = RangeCheckChip::configure(meta);
         let signature = SignatureChip::<halo2curves::bn256::G1Affine, Fr, 4, 68>::configure(meta);
-        IdentityClaimConfig { range, signature }
+        // Poseidon용 컬럼 선언
+        let state = [meta.advice_column(), meta.advice_column(), meta.advice_column()];
+        let partial_sbox = meta.advice_column();
+        let rc_a = [meta.fixed_column(), meta.fixed_column(), meta.fixed_column()];
+        let rc_b = [meta.fixed_column(), meta.fixed_column(), meta.fixed_column()];
+
+        let poseidon = Pow5Chip::<Fr, 3, 2>::configure::<P128Pow5T3>(
+            meta,
+            state,
+            partial_sbox,
+            rc_a,
+            rc_b,
+        );
+
+        IdentityClaimConfig { range, signature, poseidon }
     }
 
     fn synthesize(
@@ -71,42 +87,77 @@ impl Circuit<Fr> for IdentityClaimCircuit {
         config: Self::Config,
         mut layouter: impl Layouter<Fr>,
     ) -> Result<(), Error> {
-        // 1. Poseidon 해시 (off-circuit 예시)
-        let calc_claim_hash = PoseidonGadget::hash(&[self.value, self.min, self.max]);
+        // 1. 값 할당만 region에서
+        let (assigned_value, assigned_min, assigned_max, assigned_path) =
+            layouter.assign_region(
+                || "identity claim main",
+                |mut region| {
+                    let assigned_value = region.assign_advice(
+                        || "value", config.range.value, 0, || Value::known(self.value)
+                    )?;
+                    let assigned_min = region.assign_advice(
+                        || "min", config.range.min, 0, || Value::known(self.min)
+                    )?;
+                    let assigned_max = region.assign_advice(
+                        || "max", config.range.max, 0, || Value::known(self.max)
+                    )?;
+                    let assigned_path: Vec<AssignedCell<Fr, Fr>> = self.merkle_proof.iter()
+                        .enumerate()
+                        .map(|(i, v)| region.assign_advice(
+                            || format!("merkle_path_{i}"), config.range.value, i + 1, || Value::known(*v)
+                        ).unwrap())
+                        .collect();
+                    Ok((assigned_value, assigned_min, assigned_max, assigned_path))
+                }
+            )?;
 
-        // 2. Merkle proof (off-circuit 예시)
-        let _merkle_root = MerkleGadget::compute_root(calc_claim_hash, &self.merkle_proof, &vec![]);
+       // 2. Poseidon 해시 (in-circuit, layouter 기반)
+        let chip = Pow5Chip::<Fr, 3, 2>::construct(config.poseidon.clone());
+        let calc_claim_hash = PoseidonGadget::hash::<3>(
+            &chip,
+            layouter.namespace(|| "poseidon hash"),
+            [assigned_value.clone(), assigned_min.clone(), assigned_max.clone()],
+        )?;
 
-        // 3. Range check (in-circuit)
+        // 3. Merkle root 계산 (layouter 기반)
+        let indicies: Vec<bool> = (0..self.merkle_proof.len())
+            .map(|i| (self.leaf_index >> i) & 1 == 1)
+            .collect();
+        let _merkle_root = MerkleGadget::compute_root(
+            &chip,
+            &mut layouter,
+            calc_claim_hash.clone(),
+            &assigned_path,
+            &indicies,
+        )?;
+
+        // 4. Range check (in-circuit, layouter 기반)
         let range_chip = RangeCheckChip::<Fr>::construct(config.range.clone());
-        range_chip.range_check(&mut layouter, self.value, self.min, self.max)?;
-
-        // 4. Signature 검증 (in-circuit)
-         // 4. Signature 검증 (in-circuit)
-         layouter.assign_region(
+        range_chip.range_check(
+            &mut layouter,
+            &assigned_value,
+            self.min,
+            self.max
+        )?;
+    
+        // 5. Signature 검증 (in-circuit, 별도 region)
+        layouter.assign_region(
             || "ecdsa verify",
             |mut region| {
                 let mut ctx = RegionCtx::new(region, 0);
 
-                // EccChip 생성 (EccConfig는 SignatureConfig 내부에서 가져오거나 별도 생성)
                 let ecc_chip = GeneralEccChip::<G1Affine, Fr, 4, 68>::new(config.signature.ecc_chip_config());
-
-                // EcdsaChip 생성
                 let ecdsa_chip = EcdsaChip::new(ecc_chip);
-
-                // SignatureChip 생성
                 let signature_chip = SignatureChip::new(ecdsa_chip);
-                
+
                 let pk_x_fq = Fq::from_repr_vartime(self.pk_x.to_repr()).unwrap();
                 let pk_y_fq = Fq::from_repr_vartime(self.pk_y.to_repr()).unwrap();
                 let assigned_pk = signature_chip.assign_public_key(&mut ctx, (pk_x_fq, pk_y_fq))?;
-
                 let assigned_sig = signature_chip.assign_signature(&mut ctx, (self.sig_r, self.sig_s))?;
-                
                 let assigned_msg_hash = signature_chip.assign_integer(&mut ctx, self.signature_hash)?;
                 signature_chip.verify(&mut ctx, &assigned_sig, &assigned_pk, &assigned_msg_hash)?;
                 Ok(())
-                },
+            }
         )?;
 
         Ok(())

@@ -1,17 +1,29 @@
 use halo2curves::bn256::Fr;
-use poseidon::Poseidon;
+use halo2::{
+    circuit::{AssignedCell, Region, Value, Layouter},
+    plonk::Error,
+};
+use poseidon::{Pow5Chip, Spec, ConstantLength, Hash};
 
-const R_F: usize = 8;
-const R_P: usize = 57;
-const T: usize = 3;
+const WIDTH: usize = 3;
 const RATE: usize = 2;
 
 pub struct PoseidonGadget;
 
 impl PoseidonGadget {
-    pub fn hash(inputs: &[Fr]) -> Fr {
-        let mut poseidon = Poseidon::<Fr, T, RATE>::new(R_F, R_P);
-        poseidon.update(inputs);
-        poseidon.squeeze()
+    pub fn hash<const L: usize>(
+        chip: &Pow5Chip<Fr, WIDTH, RATE>,
+        layouter: impl Layouter<Fr>,
+        inputs: [AssignedCell<Fr, Fr>; L],
+    ) -> Result<AssignedCell<Fr, Fr>, Error> {
+        let hasher = Hash::<
+            Fr,
+            Pow5Chip<Fr, WIDTH, RATE>,
+            Spec<Fr, WIDTH, RATE>,
+            ConstantLength<L>,
+            WIDTH,
+            RATE,
+        >::init(chip, layouter.namespace(|| "init"))?;
+        hasher.hash(layouter, inputs)
     }
 }

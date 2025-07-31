@@ -1,24 +1,40 @@
+use halo2::{
+    circuit::{AssignedCell, Region, Value, Layouter},
+    plonk::Error,
+};
 use halo2curves::bn256::Fr;
 use crate::gadgets::poseidon::PoseidonGadget;
+use poseidon::Pow5Chip;
+
 
 pub struct MerkleGadget;
 
 impl MerkleGadget {
-    /// leaf: 리프 값
-    /// path: 머클 경로 값들
-    /// indices: 각 경로가 왼쪽/오른쪽인지 (false: left, true: right)
-    pub fn compute_root(leaf: Fr, path: &[Fr], indices: &[bool]) -> Fr {
-        let mut hash = leaf;
+    /// in-circuit Merkle root 계산
+    /// leaf: AssignedCell<Fr, Fr>
+    /// path: Vec<AssignedCell<Fr, Fr>>
+    /// indices: &[bool]
+    pub fn compute_root(
+        chip: &Pow5Chip<Fr, 3, 2>,
+        layouter: &mut impl Layouter<Fr>,
+        mut hash: AssignedCell<Fr, Fr>,
+        path: &[AssignedCell<Fr, Fr>],
+        indices: &[bool],
+    ) -> Result<AssignedCell<Fr, Fr>, Error> {
+        
         for (i, sibling) in path.iter().enumerate() {
-            let inputs = if indices[i] {
-                // 오른쪽에 sibling
-                vec![sibling.clone(), hash]
-            } else {
-                // 왼쪽에 sibling
-                vec![hash, sibling.clone()]
-            };
-            hash = PoseidonGadget::hash(&inputs);
-        }
-        hash
+           let (left, right) = if indices[i] {
+            (sibling.clone(), hash)
+           } else {
+                (hash, sibling.clone())
+           };
+           // PoseidonGadget의 in-circuit 해시 API 사용
+           hash = PoseidonGadget::hash::<2>(
+            chip,
+            layouter.namespace(|| format!("merkle_hash_{i}")),
+            [left, right],
+        )?;
+    }
+    Ok(hash)
     }
 }

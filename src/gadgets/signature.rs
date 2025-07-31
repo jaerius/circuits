@@ -18,7 +18,7 @@ use ecc::AssignedPoint;
 /// SignatureConfig: ECDSA gadget의 config를 그대로 사용
 pub type SignatureConfig = EcdsaConfig;
 
-/// SignatureChip: 내부적으로 halo2wrong의 EcdsaChip을 래핑
+/// SignatureChip: 내부적으로 ecdsa의 EcdsaChip을 래핑
 pub struct SignatureChip<E: halo2curves::CurveAffine, F: PrimeField, const LIMBS: usize, const BITS: usize> {
     chip: EcdsaChip<E, F, LIMBS, BITS>,
 }
@@ -42,8 +42,9 @@ impl<E: halo2curves::CurveAffine<ScalarExt = F>, F: PrimeField, const LIMBS: usi
         sig: (E::Scalar, E::Scalar),
     ) -> Result<AssignedEcdsaSig<E::Scalar, F, LIMBS, BITS>, Error> {
         let scalar_chip = self.chip.scalar_field_chip();
-        let rns = scalar_chip.rns(); // 또는 self.chip.range(), config.range 등 회로 구조에 맞게
+        let rns = scalar_chip.rns();
         let r = scalar_chip.assign_integer(ctx,  UnassignedInteger::from(Value::known(Integer::from_fe(sig.0, rns.clone()))), Range::Operand)?;
+        // field element를 RNS 기반 limb 구조로 변환
         let s = scalar_chip.assign_integer(ctx,  UnassignedInteger::from(Value::known(Integer::from_fe(sig.1, rns.clone()))), Range::Operand)?;
         Ok(AssignedEcdsaSig { r, s })
     }
@@ -90,69 +91,35 @@ impl<E: halo2curves::CurveAffine<ScalarExt = F>, F: PrimeField, const LIMBS: usi
     }
 }
 
+// ECDSA 검증은 아래 수학적 검증을 회로로 표현
+// Given:
+//   Signature: (r, s)
+//   Public key: P = (x, y)
+//   Message hash: z
+// Verify:
+//   w = s⁻¹ mod n
+//   u1 = z * w mod n
+//   u2 = r * w mod n
+//   R = u1 * G + u2 * P
+//   R.x mod n == r ?
 
-// use halo2_proofs::{
-//     circuit::{Layouter, Value},
-//     plonk::{Advice, Column, ConstraintSystem, Error, Selector},
-// };
-// use halo2curves::ff::{Field, PrimeField};
-// use halo2_proofs::poly::Rotation;
 
-// #[derive(Clone, Debug)]
-// pub struct SignatureConfig {
-//     pub msg: Column<Advice>,
-//     pub sig: Column<Advice>,
-//     pub pk: Column<Advice>,
-//     pub selector: Selector,
-// }
+// assign_signature:
+//   - r, s 값 -> RNS limb 구조로 변환 (AssignedInteger)
+// assign_public_key:
+//   - (x, y) -> RNS limb 구조로 변환 → AssignedPoint
+// assign_integer:
+//   - 메시지 해시 z → RNS limb로 변환
 
-// pub struct SignatureChip<F: Field> {
-//     config: SignatureConfig,
-//     _marker: std::marker::PhantomData<F>,
-// }
+// verify:
+//   - 내부적으로 EcdsaChip.verify(ctx, sig, pk, msg_hash) 호출
+//     └→ 실제 흐름:
+//         1. w = s⁻¹ mod n (modular inverse using RNS)
+//         2. u₁ = z · w
+//         3. u₂ = r · w
+//         4. [Scalar mult]: u₁·G + u₂·P
+//         5. 결과점의 x좌표 mod n == r 검증
 
-// impl<F: Field> SignatureChip<F> {
-//     pub fn construct(config: SignatureConfig) -> Self {
-//         Self { config, _marker: std::marker::PhantomData }
-//     }
-
-//     pub fn configure(meta: &mut ConstraintSystem<F>) -> SignatureConfig {
-//         let msg = meta.advice_column();
-//         let sig = meta.advice_column();
-//         let pk = meta.advice_column();
-//         let selector = meta.selector();
-
-//         // 실제 signature 검증 constraint는 구현체에 따라 다름(예: ECDSA, Schnorr 등)
-//         // 아래는 placeholder
-//         meta.create_gate("signature check", |meta| {
-//             let s = meta.query_selector(selector);
-//             let msg = meta.query_advice(msg, Rotation::cur());
-//             let sig = meta.query_advice(sig, Rotation::cur());
-//             let pk = meta.query_advice(pk, Rotation::cur());
-
-//             // 실제 검증 로직은 별도 gadget에서 구현 필요
-//             vec![s * (msg + sig + pk)] // placeholder
-//         });
-
-//         SignatureConfig { msg, sig, pk, selector }
-//     }
-
-//     pub fn verify(
-//         &self,
-//         layouter: &mut impl Layouter<F>,
-//         msg: F,
-//         sig: F,
-//         pk: F,
-//     ) -> Result<(), Error> {
-//         layouter.assign_region(
-//             || "signature verify",
-//             |mut region| {
-//                 self.config.selector.enable(&mut region, 0)?;
-//                 region.assign_advice(self.config.msg, 0, Value::known(msg));
-//                 region.assign_advice(self.config.sig, 0, Value::known(sig));
-//                 region.assign_advice(self.config.pk, 0, Value::known(pk));
-//                 Ok(())
-//             },
-//         )
-//     }
-// }
+//   - 모든 연산은 RNS 기반 limb 연산
+//   - scalar 연산은 IntegerConfig / IntegerInstructions trait 기반
+//   - ECC 연산은 EccChip 기반 (일반적으로 elliptic curve group addition, scalar mul 포함)

@@ -5,6 +5,7 @@ use halo2::{
 };
 use halo2curves::ff::{Field, PrimeField};
 use halo2::poly::Rotation;
+use halo2::circuit::AssignedCell;
 use integer::IntegerInstructions;
 
 #[derive(Clone, Debug)]
@@ -50,7 +51,7 @@ impl<F: Field> RangeCheckChip<F> {
     pub fn range_check(
         &self,
         layouter: &mut impl Layouter<F>,
-        value: F,
+        assigned_value: &AssignedCell<F, F>,
         min: F,
         max: F,
     ) -> Result<(), Error> {
@@ -58,7 +59,7 @@ impl<F: Field> RangeCheckChip<F> {
             || "range check",
             |mut region| {
                 self.config.selector.enable(&mut region, 0)?;
-                region.assign_advice(|| "value", self.config.value, 0, || Value::known(value))?;
+                assigned_value.constrain_advice(region, self.config.value, 0)?;
                 region.assign_advice(|| "min", self.config.min, 0, || Value::known(min))?;
                 region.assign_advice(|| "max", self.config.max, 0, || Value::known(max))?;
                 Ok(())

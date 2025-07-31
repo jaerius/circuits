@@ -11,7 +11,7 @@ halo2-ecc = "0.5.0"
 halo2curves = "0.5.0"
 halo2-axiom = "0.5.1"
 tetris = { git = "https://github.com/kilic/tetris.git", branch = "main" }
-poseidon = { git = "https://github.com/privacy-scaling-explorations/poseidon.git", branch = "main" }
+poseidon = { path ="../poseidon"}
 rand_core = "0.6.3"
 ecdsa = { path = "../ecdsa" }
 ecc = { path = "../ecc" }
